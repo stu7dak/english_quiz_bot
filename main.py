@@ -1,12 +1,10 @@
 import logging
 import datetime
-import json
 import os
 from flask import Flask, request
 from threading import Thread
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, ContextTypes, CallbackQueryHandler
-from telegram.constants import ParseMode
 
 from config import BOT_TOKEN, SHEET_NAME, GOOGLE_CREDENTIALS_FILE, MAX_ATTEMPTS
 from topics import TOPICS
@@ -14,12 +12,12 @@ from topics import TOPICS
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Создаём файл credentials.json из переменной окружения
+# Создаём файл credentials.json
 if os.environ.get('GOOGLE_CREDENTIALS'):
     with open('credentials.json', 'w') as f:
         f.write(os.environ.get('GOOGLE_CREDENTIALS'))
 
-# Инициализация Google Sheets
+# Google Sheets
 def get_google_sheet():
     try:
         import gspread
@@ -30,10 +28,10 @@ def get_google_sheet():
         sheet = client.open("Quiz_Statistics").worksheet(SHEET_NAME)
         return sheet
     except Exception as e:
-        logger.error(f"Ошибка подключения к Google Sheets: {e}")
+        logger.error(f"Google Sheets error: {e}")
         return None
 
-# Хранилище данных пользователей
+# Хранилище
 user_data_store = {}
 
 def get_user_data(user_id):
@@ -49,8 +47,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text(
-        f"Привет, {user.first_name}! 👋\nВыберите тему для прохождения теста.\n"
-        f"У вас есть максимум {MAX_ATTEMPTS} попыток.",
+        f"Привет, {user.first_name}! 👋\nВыберите тему для теста.\nПопыток: {MAX_ATTEMPTS}",
         reply_markup=reply_markup
     )
 
@@ -64,7 +61,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data.startswith("start_"):
         topic_key = data.split("start_")[1]
         if user_data["attempts"] >= MAX_ATTEMPTS:
-            await query.edit_message_text("Вы исчерпали лимит попыток (3). Обратитесь к преподавателю.")
+            await query.edit_message_text("Лимит попыток исчерпан!")
             return
 
         user_data["current_topic"] = topic_key
@@ -101,7 +98,7 @@ async def send_question(query, user_id):
         keyboard.append([InlineKeyboardButton(option, callback_data=f"ans_{option}")])
 
     await query.edit_message_text(
-        f"Вопрос {q_index + 1} из {len(TOPICS[topic_key]['questions'])}\n\n{question['text']}",
+        f"Вопрос {q_index + 1}/{len(TOPICS[topic_key]['questions'])}\n\n{question['text']}",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
@@ -129,35 +126,26 @@ async def finish_test(query, user_id):
                 f"{score}/{total_questions}",
                 user_data["attempts"]
             ])
-            logger.info("Данные успешно сохранены в Google Таблицу")
         except Exception as e:
-            logger.error(f"Ошибка записи в таблицу: {e}")
-            await query.edit_message_text("Тест завершен, но произошла ошибка при сохранении статистики.")
-            return
+            logger.error(f"Sheet error: {e}")
 
     user_data["current_topic"] = None
     user_data["q_index"] = 0
     user_data["score"] = 0
 
     attempts_left = MAX_ATTEMPTS - user_data["attempts"]
-    msg = (
-        f"🎉 Тест завершен!\n\n"
-        f"Тема: {topic_title}\n"
-        f"Ваш результат: {score} из {total_questions} правильных ответов.\n"
-        f"Время прохождения: {round(duration, 1)} мин.\n"
-        f"Осталось попыток: {attempts_left}"
-    )
+    msg = f"✅ Тест завершён!\n\nТема: {topic_title}\nРезультат: {score}/{total_questions}\nВремя: {round(duration, 1)} мин.\nОсталось попыток: {attempts_left}"
     
     keyboard = []
     if attempts_left > 0:
-        keyboard.append([InlineKeyboardButton("Пройти другой тест", callback_data="restart")])
+        keyboard.append([InlineKeyboardButton("Другой тест", callback_data="restart")])
     
     await query.edit_message_text(msg, reply_markup=InlineKeyboardMarkup(keyboard) if keyboard else None)
 
 async def restart_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await start(update, context)
 
-# Flask веб-сервер
+# Flask
 app = Flask(__name__)
 
 @app.route('/webhook', methods=['POST'])
@@ -171,17 +159,12 @@ def health():
     return 'Bot is running!'
 
 def run_flask():
-    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 8080)))
-
-async def post_init(application):
-    webhook_url = os.environ.get('WEBHOOK_URL')
-    if webhook_url:
-        await application.bot.set_webhook(webhook_url)
-        logger.info(f"Webhook установлен: {webhook_url}")
+    port = int(os.environ.get('PORT', 8080))
+    app.run(host='0.0.0.0', port=port)
 
 def main():
     global application
-    application = Application.builder().token(BOT_TOKEN).post_init(post_init).build()
+    application = Application.builder().token(BOT_TOKEN).build()
 
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CallbackQueryHandler(button_handler))
@@ -189,11 +172,9 @@ def main():
 
     logger.info("Бот запущен...")
     
-    # Запускаем Flask в отдельном потоке
     flask_thread = Thread(target=run_flask)
     flask_thread.start()
     
-    # Запускаем бота
     application.run_polling(drop_pending_updates=True)
     
 if __name__ == '__main__':
