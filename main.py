@@ -12,6 +12,12 @@ from topics import TOPICS
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Создаём файл credentials.json из переменной окружения
+import os
+if os.environ.get('GOOGLE_CREDENTIALS'):
+    with open('credentials.json', 'w') as f:
+        f.write(os.environ.get('GOOGLE_CREDENTIALS'))
+
 # Инициализация Google Sheets
 def get_google_sheet():
     try:
