@@ -5,7 +5,7 @@ BOT_TOKEN = "8906119391:AAGtkFXAHd1y_En8Wdr_UM_z-WN9X41R300"
 SHEET_NAME = "Лист1"
 
 # Путь к скачанному JSON-файлу ключей Google (положите этот файл в папку с ботом)
-GOOGLE_CREDENTIALS_FILE = "my-project-123.json" 
+GOOGLE_CREDENTIALS_FILE = "credentials.json" 
 
 # Максимальное количество попыток
 MAX_ATTEMPTS = 3
