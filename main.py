@@ -160,13 +160,13 @@ async def restart_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 def main():
     application = Application.builder().token(BOT_TOKEN).build()
-    
+
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CallbackQueryHandler(button_handler))
     application.add_handler(CallbackQueryHandler(restart_handler, pattern="^restart$"))
 
     logger.info("Бот запущен...")
     application.run_polling(allowed_updates=Update.ALL_TYPES)
-
+    
 if __name__ == '__main__':
     main()
