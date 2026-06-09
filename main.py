@@ -1,10 +1,11 @@
 import logging
 import datetime
-import json
+import os
 import gspread
 from google.oauth2.service_account import Credentials
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, ContextTypes, CallbackQueryHandler
+from flask import Flask, request
 
 from config import BOT_TOKEN, SHEET_NAME, GOOGLE_CREDENTIALS_FILE, MAX_ATTEMPTS
 from topics import TOPICS
@@ -12,25 +13,25 @@ from topics import TOPICS
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Создаём Flask приложение (чтобы Render увидел открытый порт)
+flask_app = Flask(__name__)
+
 # Создаём файл credentials.json из переменной окружения
-import os
 if os.environ.get('GOOGLE_CREDENTIALS'):
     with open('credentials.json', 'w') as f:
         f.write(os.environ.get('GOOGLE_CREDENTIALS'))
 
-# Инициализация Google Sheets
 def get_google_sheet():
     try:
         scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
         creds = Credentials.from_service_account_file(GOOGLE_CREDENTIALS_FILE, scopes=scope)
         client = gspread.authorize(creds)
-        sheet = client.open("Quiz_Statistics").worksheet(SHEET_NAME) # Убедитесь, что имя таблицы совпадает
+        sheet = client.open("Quiz_Statistics").worksheet(SHEET_NAME)
         return sheet
     except Exception as e:
         logger.error(f"Ошибка подключения к Google Sheets: {e}")
         return None
 
-# Хранилище данных пользователей в памяти (user_id -> данные)
 user_data_store = {}
 
 def get_user_data(user_id):
@@ -58,7 +59,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = query.data
     user_data = get_user_data(user_id)
 
-    # Начало теста
     if data.startswith("start_"):
         topic_key = data.split("start_")[1]
         if user_data["attempts"] >= MAX_ATTEMPTS:
@@ -73,7 +73,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         await send_question(query, user_id)
 
-    # Ответ на вопрос
     elif data.startswith("ans_"):
         answer = data.split("ans_")[1]
         topic_key = user_data["current_topic"]
@@ -113,9 +112,8 @@ async def finish_test(query, user_id):
     
     end_time = datetime.datetime.now()
     start_time = user_data["start_time"]
-    duration = (end_time - start_time).total_seconds() / 60  # в минутах
+    duration = (end_time - start_time).total_seconds() / 60
 
-    # Сохранение в Google Таблицу
     sheet = get_google_sheet()
     if sheet:
         try:
@@ -135,7 +133,6 @@ async def finish_test(query, user_id):
             await query.edit_message_text("Тест завершен, но произошла ошибка при сохранении статистики.")
             return
 
-    # Очистка данных пользователя для нового теста (но попытки сохраняются)
     user_data["current_topic"] = None
     user_data["q_index"] = 0
     user_data["score"] = 0
@@ -158,15 +155,47 @@ async def finish_test(query, user_id):
 async def restart_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await start(update, context)
 
+# Flask маршруты для Render
+@flask_app.route('/')
+def home():
+    return "Бот работает! 🤖"
+
+@flask_app.route('/webhook', methods=['POST'])
+def webhook():
+    json_data = request.get_json(force=True)
+    update = Update.de_json(json_data, application.bot)
+    application.process_update(update)
+    return "ok"
+
+def run_flask():
+    port = int(os.environ.get('PORT', 5000))
+    flask_app.run(host='0.0.0.0', port=port)
+
 def main():
+    global application
     application = Application.builder().token(BOT_TOKEN).build()
 
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CallbackQueryHandler(button_handler))
     application.add_handler(CallbackQueryHandler(restart_handler, pattern="^restart$"))
 
+    logger.info("Настройка webhook...")
+    
+    # URL вашего сервиса на Render (замените на ваш URL!)
+    # Пример: https://english-quiz-bot.onrender.com/webhook
+    WEBHOOK_URL = os.environ.get('WEBHOOK_URL', '')
+    
+    if WEBHOOK_URL:
+        application.bot.set_webhook(url=WEBHOOK_URL)
+        logger.info(f"Webhook установлен: {WEBHOOK_URL}")
+    
+    # Запускаем Flask в отдельном потоке
+    import threading
+    flask_thread = threading.Thread(target=run_flask)
+    flask_thread.start()
+    
     logger.info("Бот запущен...")
     application.run_polling(allowed_updates=Update.ALL_TYPES)
-    
+
 if __name__ == '__main__':
     main()
