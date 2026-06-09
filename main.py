@@ -1,11 +1,12 @@
 import logging
 import datetime
+import json
 import os
-import gspread
-from google.oauth2.service_account import Credentials
+from flask import Flask, request
+from threading import Thread
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, ContextTypes, CallbackQueryHandler
-from flask import Flask, request
+from telegram.constants import ParseMode
 
 from config import BOT_TOKEN, SHEET_NAME, GOOGLE_CREDENTIALS_FILE, MAX_ATTEMPTS
 from topics import TOPICS
@@ -13,16 +14,16 @@ from topics import TOPICS
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Создаём Flask приложение (чтобы Render увидел открытый порт)
-flask_app = Flask(__name__)
-
 # Создаём файл credentials.json из переменной окружения
 if os.environ.get('GOOGLE_CREDENTIALS'):
     with open('credentials.json', 'w') as f:
         f.write(os.environ.get('GOOGLE_CREDENTIALS'))
 
+# Инициализация Google Sheets
 def get_google_sheet():
     try:
+        import gspread
+        from google.oauth2.service_account import Credentials
         scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
         creds = Credentials.from_service_account_file(GOOGLE_CREDENTIALS_FILE, scopes=scope)
         client = gspread.authorize(creds)
@@ -32,6 +33,7 @@ def get_google_sheet():
         logger.error(f"Ошибка подключения к Google Sheets: {e}")
         return None
 
+# Хранилище данных пользователей
 user_data_store = {}
 
 def get_user_data(user_id):
@@ -155,47 +157,44 @@ async def finish_test(query, user_id):
 async def restart_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await start(update, context)
 
-# Flask маршруты для Render
-@flask_app.route('/')
-def home():
-    return "Бот работает! 🤖"
+# Flask веб-сервер
+app = Flask(__name__)
 
-@flask_app.route('/webhook', methods=['POST'])
-def webhook():
-    json_data = request.get_json(force=True)
-    update = Update.de_json(json_data, application.bot)
-    application.process_update(update)
-    return "ok"
+@app.route('/webhook', methods=['POST'])
+async def webhook():
+    update = Update.de_json(request.get_json(force=True), application.bot)
+    await application.process_update(update)
+    return 'ok'
+
+@app.route('/')
+def health():
+    return 'Bot is running!'
 
 def run_flask():
-    port = int(os.environ.get('PORT', 5000))
-    flask_app.run(host='0.0.0.0', port=port)
+    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 8080)))
+
+async def post_init(application):
+    webhook_url = os.environ.get('WEBHOOK_URL')
+    if webhook_url:
+        await application.bot.set_webhook(webhook_url)
+        logger.info(f"Webhook установлен: {webhook_url}")
 
 def main():
     global application
-    application = Application.builder().token(BOT_TOKEN).build()
+    application = Application.builder().token(BOT_TOKEN).post_init(post_init).build()
 
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CallbackQueryHandler(button_handler))
     application.add_handler(CallbackQueryHandler(restart_handler, pattern="^restart$"))
 
-    logger.info("Настройка webhook...")
-    
-    # URL вашего сервиса на Render (замените на ваш URL!)
-    # Пример: https://english-quiz-bot.onrender.com/webhook
-    WEBHOOK_URL = os.environ.get('WEBHOOK_URL', '')
-    
-    if WEBHOOK_URL:
-        application.bot.set_webhook(url=WEBHOOK_URL)
-        logger.info(f"Webhook установлен: {WEBHOOK_URL}")
+    logger.info("Бот запущен...")
     
     # Запускаем Flask в отдельном потоке
-    import threading
-    flask_thread = threading.Thread(target=run_flask)
+    flask_thread = Thread(target=run_flask)
     flask_thread.start()
     
-    logger.info("Бот запущен...")
-    application.run_polling(allowed_updates=Update.ALL_TYPES)
-
+    # Запускаем бота
+    application.run_polling(drop_pending_updates=True)
+    
 if __name__ == '__main__':
     main()
