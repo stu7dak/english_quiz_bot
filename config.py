@@ -1,11 +1,6 @@
-# Замените на ваш реальный токен из BotFather
-BOT_TOKEN = "8906119391:AAGtkFXAHd1y_En8Wdr_UM_z-WN9X41R300"
+import os
 
-# Имя вашего Google-документа (точно как в названии вкладки внизу таблицы, обычно "Лист1")
-SHEET_NAME = "Quiz_Statistics"
-
-# Путь к скачанному JSON-файлу ключей Google (положите этот файл в папку с ботом)
-GOOGLE_CREDENTIALS_FILE = "credentials.json" 
-
-# Максимальное количество попыток
-MAX_ATTEMPTS = 3
+BOT_TOKEN = os.environ.get('8906119391:AAGtkFXAHd1y_En8Wdr_UM_z-WN9X41R300')
+SHEET_NAME = os.environ.get('SHEET_NAME', 'Quiz_Statistics')
+GOOGLE_CREDENTIALS_FILE = 'credentials.json'
+MAX_ATTEMPTS = int(os.environ.get('MAX_ATTEMPTS', 3))
