@@ -25,7 +25,7 @@ def get_google_sheet():
         scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
         creds = Credentials.from_service_account_file(GOOGLE_CREDENTIALS_FILE, scopes=scope)
         client = gspread.authorize(creds)
-        sheet = client.open("Quiz_Statistics").worksheet(SHEET_NAME)
+        sheet = client.open("Sheet1").worksheet(SHEET_NAME)
         return sheet
     except Exception as e:
         logger.error(f"Google Sheets error: {e}")
